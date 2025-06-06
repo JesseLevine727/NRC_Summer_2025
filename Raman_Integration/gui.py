@@ -478,6 +478,37 @@ class RamanApp(ctk.CTk):
                 peak_math_df.drop(columns="Spectrum #", inplace=True)
             print("Dropped Spectrum # column")
 
+        def _pivot_map_wide(frame: pd.DataFrame) -> pd.DataFrame:
+            """Pivot multiple MAP files side-by-side if needed."""
+            if "Filename" not in frame.columns or "Spectrum #" not in frame.columns:
+                return frame
+            file_counts = frame["Filename"].nunique()
+            if file_counts <= 1:
+                return frame
+
+            groups = []
+            for _, sub in frame.groupby("Filename", sort=False):
+                sub = sub.reset_index(drop=True)
+                groups.append(sub)
+
+            if len(groups) == 1:
+                return groups[0]
+            return pd.concat(groups, axis=1)
+
+        map_files = [f for f, c in self.coordinates.items() if c]
+        if len(map_files) > 1:
+            integration_df = _pivot_map_wide(integration_df)
+            if not peak_df.empty:
+                peak_df = _pivot_map_wide(peak_df)
+            if not ratio_df.empty:
+                ratio_df = _pivot_map_wide(ratio_df)
+            if not peak_ratio_df.empty:
+                peak_ratio_df = _pivot_map_wide(peak_ratio_df)
+            if not math_df.empty:
+                math_df = _pivot_map_wide(math_df)
+            if not peak_math_df.empty:
+                peak_math_df = _pivot_map_wide(peak_math_df)
+
         try:
             from pandas import ExcelWriter
             import os
