@@ -29,7 +29,7 @@ This repository contains a Python application for integrating and analyzing Rama
 
 - Supports multi-spectra map files with coordinate information.
 - Computes baseline-corrected and raw peak intensities.
-- Automatic generation of pairwise area ratios and inverse ratios.
+- Automatic generation of ratios of selected ranges and peaks.
 - User-defined formulas ("Spectral Math" and "Peak Spectral Math") evaluated on the fly.
 - Uses Matplotlib for plotting; figures are cached to reduce overhead.
 
