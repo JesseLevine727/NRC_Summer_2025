@@ -339,10 +339,7 @@ class RamanApp(ctk.CTk):
         4) Drop Spectrum # if all values are 1.
         5) Write Excel via explicit ExcelWriter; verify success.
         """
-        print("Entering _export_results")
-
         if not self.results and not self.peaks:
-            print("No results to export.")
             return self._show_error("No results to export.")
 
         # Ask user where to save
@@ -350,9 +347,7 @@ class RamanApp(ctk.CTk):
             defaultextension=".xlsx",
             filetypes=[("Excel", "*.xlsx")]
         )
-        print(f"User selected path: {path}")
         if not path:
-            print("Save dialog canceled.")
             return
 
         # 1) Build rows
@@ -411,7 +406,6 @@ class RamanApp(ctk.CTk):
                 rows.append(row)
 
         df = pd.DataFrame(rows)
-        print("Built DataFrame for export, shape:", df.shape)
 
         coord_names = ["X_Coordinate", "Y_Coordinate", "Z_Coordinate"]
         coord_cols  = [cn for cn in coord_names if cn in df.columns]
@@ -457,7 +451,6 @@ class RamanApp(ctk.CTk):
                 ratio_df.drop(columns="Spectrum #", inplace=True)
             if not math_df.empty:
                 math_df.drop(columns="Spectrum #", inplace=True)
-            print("Dropped Spectrum # column")
 
         try:
             from pandas import ExcelWriter
