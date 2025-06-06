@@ -71,7 +71,8 @@ class RamanApp(ctk.CTk):
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
 
-        self.coordinates = {} 
+        self.coordinates = {}
+        self.range_labels = []
 
         #Folder or individual files
         self.file_paths: List[str] = []
@@ -100,6 +101,9 @@ class RamanApp(ctk.CTk):
         self.file_container = None
         self.file_buttons = []
 
+        self.ratios_entry = None
+        self.math_entry = None
+
         # Create minimal layout - just sidebar initially
         self.create_minimal_layout()
         
@@ -118,7 +122,7 @@ class RamanApp(ctk.CTk):
         # Create sidebar frame only
         self.sidebar = ctk.CTkFrame(self, width=380)
         self.sidebar.grid(row=0, column=0, padx=(10, 0), pady=10, sticky="nsew")
-        self.sidebar.grid_rowconfigure(9, weight=1)
+        self.sidebar.grid_rowconfigure(13, weight=1)
         self.sidebar.grid_propagate(False)  # Prevent sidebar from shrinking
 
         # Create placeholder for content frame (will be built later)
@@ -161,7 +165,7 @@ class RamanApp(ctk.CTk):
 
         self.file_container = ctk.CTkScrollableFrame(self.sidebar)
         self.file_container.grid(
-            row=9, column=0, padx=10, pady=(1, 0), sticky="nsew"
+            row=13, column=0, padx=10, pady=(1, 0), sticky="nsew"
         )
 
     def _preview_selection(self):
@@ -255,29 +259,39 @@ class RamanApp(ctk.CTk):
         self.ranges_entry = ctk.CTkEntry(self.sidebar)
         self.ranges_entry.grid(row=3, column=0, padx=10, sticky="ew")
 
+        ratio_label = ctk.CTkLabel(self.sidebar, text="Ratios (e.g., 1/2;3/1):")
+        ratio_label.grid(row=4, column=0, padx=10, pady=(10,0), sticky="w")
+        self.ratios_entry = ctk.CTkEntry(self.sidebar)
+        self.ratios_entry.grid(row=5, column=0, padx=10, sticky="ew")
+
+        math_label = ctk.CTkLabel(self.sidebar, text="Spectral Math (e.g., 1/(2+3)):")
+        math_label.grid(row=6, column=0, padx=10, pady=(10,0), sticky="w")
+        self.math_entry = ctk.CTkEntry(self.sidebar)
+        self.math_entry.grid(row=7, column=0, padx=10, sticky="ew")
+
         # Process sub-folders checkbox
         self.recursive_cb = ctk.CTkCheckBox(
             self.sidebar,
             text="Process sub-folders",
             variable=self.recursive_var
         )
-        self.recursive_cb.grid(row=4, column=0, padx=10, pady=(5, 0), sticky="w")
+        self.recursive_cb.grid(row=8, column=0, padx=10, pady=(5, 0), sticky="w")
 
         # Run & Export buttons
         ctk.CTkButton(
             self.sidebar, text="Run Analysis", command=self._run
-        ).grid(row=5, column=0, padx=10, pady=(5, 2), sticky="ew")
+        ).grid(row=9, column=0, padx=10, pady=(5, 2), sticky="ew")
         ctk.CTkButton(
             self.sidebar, text="Export to Excel", command=self._export_results
-        ).grid(row=6, column=0, padx=10, pady=(2, 2), sticky="ew")
+        ).grid(row=10, column=0, padx=10, pady=(2, 2), sticky="ew")
 
         # File list (lightweight components only)
         ctk.CTkLabel(self.sidebar, text="Available Files:").grid(
-            row=7, column=0, padx=10, pady=(1, 0), sticky="w"
+            row=11, column=0, padx=10, pady=(1, 0), sticky="w"
         )
         self.search_entry = ctk.CTkEntry(self.sidebar, placeholder_text="Search files...")
         self.search_entry.grid(
-            row=8, column=0, padx=10, pady=(1, 0), sticky="ew"
+            row=12, column=0, padx=10, pady=(1, 0), sticky="ew"
         )
         self.search_entry.bind("<KeyRelease>", self._filter_files)
 
@@ -373,10 +387,22 @@ class RamanApp(ctk.CTk):
         )
         print("Pivoted wide DataFrame, shape:", wide.shape)
 
-        # 3) Add ratios
-        ratio_cols = [c for c in value_cols if not c.endswith("_Coordinate")]
-        wide = pairwise_ratios(wide, ratio_cols)
-        print("Added pairwise ratios, new shape:", wide.shape)
+        # 3) Custom ratios and spectral math
+        ratio_exprs = [r.strip() for r in (self.ratios_entry.get() or "").split(';') if r.strip()]
+        math_exprs  = [r.strip() for r in (self.math_entry.get() or "").split(';') if r.strip()]
+
+        from math_utils import evaluate_formulas
+        base_cols = [c for c in value_cols if not c.endswith("_Coordinate")]
+
+        ratio_df = pd.DataFrame()
+        math_df  = pd.DataFrame()
+        if ratio_exprs:
+            ratio_vals = evaluate_formulas(wide, ratio_exprs, base_cols)
+            ratio_df = pd.concat([wide[index_cols], ratio_vals], axis=1)
+
+        if math_exprs:
+            math_vals = evaluate_formulas(wide, math_exprs, base_cols)
+            math_df = pd.concat([wide[index_cols], math_vals], axis=1)
 
         # 4) Drop redundant Spectrum #
         if "Spectrum #" in wide.columns and wide["Spectrum #"].nunique() == 1:
@@ -387,59 +413,15 @@ class RamanApp(ctk.CTk):
             from pandas import ExcelWriter
             import os
 
-            # What filenames are we exporting right now?
-            filenames_now = list(wide["Filename"].unique())
-
-            # 1) Build subfolder map
-            subfolder_map: Dict[str, List[str]] = {}
-            for fn in filenames_now:
-                full = self._orig_paths.get(fn, "")
-                parent_dir   = os.path.dirname(full)
-                folder       = os.path.basename(parent_dir)
-                grandparent  = os.path.basename(os.path.dirname(parent_dir))
-                if grandparent and grandparent != folder:
-                    key = f"{grandparent}_{folder}"
-                else:
-                    key = folder or "ROOT"
-                subfolder_map.setdefault(key, []).append(fn)
-
-            # 2) Detect multi‐subfolder vs. multi‐MAP
-            multi_folder = self.recursive_var.get() and len(subfolder_map) > 1
-
-            # which of these files are true MAPs (have coords)?
-            map_files_now = [
-                fn for fn in filenames_now
-                if len(self.coordinates.get(fn, [])) > 0
-            ]
-            multi_map = not self.recursive_var.get() and len(map_files_now) > 1
-
             with ExcelWriter(path, engine="openpyxl") as writer:
-                if multi_folder:
-                    # One sheet per sub‐folder
-                    used = {}
-                    for key, files in subfolder_map.items():
-                        base = "".join(c for c in key if c not in r'[]:*?/\\').strip()[:31]
-                        count = used.get(base, 0)
-                        sheet = base if count == 0 else f"{base}_{count}"
-                        used[base] = count + 1
+                # Integration results
+                wide.to_excel(writer, sheet_name="Integration", index=False)
 
-                        df_chunk = wide[wide["Filename"].isin(files)].copy()
-                        # keep 'Filename' column
-                        df_chunk.to_excel(writer, sheet_name=sheet, index=False)
+                if not ratio_df.empty:
+                    ratio_df.to_excel(writer, sheet_name="Ratios", index=False)
 
-                elif multi_map:
-                    # One sheet per MAP file
-                    for fn, df_group in wide.groupby("Filename"):
-                        if fn in map_files_now:
-                            sheet = os.path.splitext(fn)[0][:31]
-                            df_out = df_group.copy()
-                            # drop Filename since sheet name is the file
-                            df_out.drop(columns="Filename", inplace=True)
-                            df_out.to_excel(writer, sheet_name=sheet, index=False)
-
-                else:
-                    # Single sheet for everything else
-                    wide.to_excel(writer, sheet_name="Results", index=False)
+                if not math_df.empty:
+                    math_df.to_excel(writer, sheet_name="Spectral Math", index=False)
 
             # verify & notify…
             if not os.path.exists(path):
@@ -545,9 +527,11 @@ class RamanApp(ctk.CTk):
         # parse ranges
         raw = self.ranges_entry.get()
         try:
-            rngs = [tuple(map(float,p.split(','))) for p in raw.split(';')]
-        except:
+            rngs = [tuple(map(float, p.split(','))) for p in raw.split(';')]
+        except Exception:
             return self._show_error("Invalid range format.")
+
+        self.range_labels = [f"{int(r[0])}–{int(r[1])}" for r in rngs]
 
         # figure out what the user picked
         if self.file_paths:

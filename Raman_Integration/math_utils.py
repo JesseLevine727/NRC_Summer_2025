@@ -212,3 +212,36 @@ def pairwise_ratios(df: 'pd.DataFrame', value_cols: List[str]) -> 'pd.DataFrame'
         inv_ratio = df[c2] / df[c1].replace({0: np.nan})
         df[inv_col] = inv_ratio.fillna(0.0).astype(float)
     return df
+
+
+def evaluate_formulas(df: 'pd.DataFrame', formulas: List[str], column_order: List[str]) -> 'pd.DataFrame':
+    """Evaluate arbitrary expressions referencing ranges by number.
+
+    Parameters
+    ----------
+    df : DataFrame
+        Input dataframe containing numeric columns.
+    formulas : List[str]
+        Expressions using integers starting at 1 to reference columns.
+    column_order : List[str]
+        Names of the numeric columns in positional order.
+
+    Returns
+    -------
+    DataFrame
+        A dataframe with the evaluated results for each formula.
+    """
+    import pandas as pd
+    import re
+
+    rename_map = {col: f"p{i+1}" for i, col in enumerate(column_order)}
+    temp = df[column_order].rename(columns=rename_map)
+
+    out = pd.DataFrame(index=df.index)
+    for expr in formulas:
+        norm = re.sub(r"\b(\d+)\b", lambda m: f"p{m.group(1)}", expr)
+        try:
+            out[expr] = temp.eval(norm)
+        except Exception:
+            out[expr] = float('nan')
+    return out
