@@ -782,7 +782,8 @@ class RamanApp(ctk.CTk):
         fig_manager = plt._pylab_helpers.Gcf.get_all_fig_managers()
         for manager in fig_manager:
             if hasattr(manager, 'canvas') and hasattr(manager.canvas, '_tkcanvas'):
-                for after_id in manager.canvas._tkcanvas.tk.call('after', 'info'):
+                ids = manager.canvas._tkcanvas.tk.call('after', 'info')
+                for after_id in str(ids).split():
                     try:
                         manager.canvas._tkcanvas.after_cancel(after_id)
                     except Exception:
