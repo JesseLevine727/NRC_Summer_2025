@@ -177,6 +177,7 @@ class RamanApp(ctk.CTk):
 
     def _preview_selection(self):
         """Populate results & plots for the selected folder/files with no ranges."""
+        reset_caches()
         # Ensure content frame exists before proceeding
         self._ensure_content_frame()
         self._ensure_file_container()
@@ -454,7 +455,6 @@ class RamanApp(ctk.CTk):
 
         try:
             from pandas import ExcelWriter
-            import os
 
             with ExcelWriter(path, engine="openpyxl") as writer:
                 integration_df.to_excel(writer, sheet_name="Integration", index=False)
@@ -552,6 +552,7 @@ class RamanApp(ctk.CTk):
 
     def _run(self):
         # Ensure content frame exists before proceeding
+        reset_caches()
         self._ensure_content_frame()
         self._ensure_file_container()
 
