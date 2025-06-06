@@ -16,8 +16,10 @@ The output workbook includes:
 
 - **Integration**: Areas for each defined range.
 - **Peaks**: Baseline-subtracted and raw intensities for each peak.
-- **Ratios**: Custom ratio calculations.
-- **Spectral Math**: Additional user-defined formulas.
+- **Ratios**: Custom ratio calculations for integrated areas.
+- **Peak Ratios**: Ratio calculations for peak intensities.
+- **Spectral Math**: Additional user-defined formulas for integrated areas.
+- **Peak Spectral Math**: User formulas applied to peak intensities.
 
 ## Requirements
 
