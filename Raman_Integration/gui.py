@@ -73,6 +73,7 @@ class RamanApp(ctk.CTk):
 
         self.coordinates = {}
         self.range_labels = []
+        self.peak_labels = []
 
         #Folder or individual files
         self.file_paths: List[str] = []
@@ -87,6 +88,7 @@ class RamanApp(ctk.CTk):
         
         # Store results and figures
         self.results = {}
+        self.peaks = {}
         self.figs = {}
         self.current_file = None
         self._orig_paths = {}
@@ -103,6 +105,7 @@ class RamanApp(ctk.CTk):
 
         self.ratios_entry = None
         self.math_entry = None
+        self.peaks_entry = None
 
         # Create minimal layout - just sidebar initially
         self.create_minimal_layout()
@@ -122,7 +125,7 @@ class RamanApp(ctk.CTk):
         # Create sidebar frame only
         self.sidebar = ctk.CTkFrame(self, width=380)
         self.sidebar.grid(row=0, column=0, padx=(10, 0), pady=10, sticky="nsew")
-        self.sidebar.grid_rowconfigure(13, weight=1)
+        self.sidebar.grid_rowconfigure(15, weight=1)
         self.sidebar.grid_propagate(False)  # Prevent sidebar from shrinking
 
         # Create placeholder for content frame (will be built later)
@@ -165,7 +168,7 @@ class RamanApp(ctk.CTk):
 
         self.file_container = ctk.CTkScrollableFrame(self.sidebar)
         self.file_container.grid(
-            row=13, column=0, padx=10, pady=(1, 0), sticky="nsew"
+            row=15, column=0, padx=10, pady=(1, 0), sticky="nsew"
         )
 
     def _preview_selection(self):
@@ -185,6 +188,7 @@ class RamanApp(ctk.CTk):
 
         self.file_buttons = []
         self.results = {}
+        self.peaks = {}
         self.figs = {}
         self.current_file = None
         self._orig_paths.clear()
@@ -213,8 +217,9 @@ class RamanApp(ctk.CTk):
 
         # compute only the raw plot (empty ranges → just raw traces)
         for p in inputs:
-            r, f, c = compute_areas_and_figures_on_file(p, [])
+            r, pk, f, c = compute_areas_and_figures_on_file(p, [], [])
             self.results.update(r)
+            self.peaks.update(pk)
             self.figs.update(f)
             self.coordinates.update(c)
 
@@ -259,15 +264,20 @@ class RamanApp(ctk.CTk):
         self.ranges_entry = ctk.CTkEntry(self.sidebar)
         self.ranges_entry.grid(row=3, column=0, padx=10, sticky="ew")
 
+        peaks_label = ctk.CTkLabel(self.sidebar, text="Peaks (wavenumbers; ...):")
+        peaks_label.grid(row=4, column=0, padx=10, pady=(10,0), sticky="w")
+        self.peaks_entry = ctk.CTkEntry(self.sidebar)
+        self.peaks_entry.grid(row=5, column=0, padx=10, sticky="ew")
+
         ratio_label = ctk.CTkLabel(self.sidebar, text="Ratios (e.g., 1/2;3/1):")
-        ratio_label.grid(row=4, column=0, padx=10, pady=(10,0), sticky="w")
+        ratio_label.grid(row=6, column=0, padx=10, pady=(10,0), sticky="w")
         self.ratios_entry = ctk.CTkEntry(self.sidebar)
-        self.ratios_entry.grid(row=5, column=0, padx=10, sticky="ew")
+        self.ratios_entry.grid(row=7, column=0, padx=10, sticky="ew")
 
         math_label = ctk.CTkLabel(self.sidebar, text="Spectral Math (e.g., 1/(2+3)):")
-        math_label.grid(row=6, column=0, padx=10, pady=(10,0), sticky="w")
+        math_label.grid(row=8, column=0, padx=10, pady=(10,0), sticky="w")
         self.math_entry = ctk.CTkEntry(self.sidebar)
-        self.math_entry.grid(row=7, column=0, padx=10, sticky="ew")
+        self.math_entry.grid(row=9, column=0, padx=10, sticky="ew")
 
         # Process sub-folders checkbox
         self.recursive_cb = ctk.CTkCheckBox(
@@ -275,23 +285,23 @@ class RamanApp(ctk.CTk):
             text="Process sub-folders",
             variable=self.recursive_var
         )
-        self.recursive_cb.grid(row=8, column=0, padx=10, pady=(5, 0), sticky="w")
+        self.recursive_cb.grid(row=10, column=0, padx=10, pady=(5, 0), sticky="w")
 
         # Run & Export buttons
         ctk.CTkButton(
             self.sidebar, text="Run Analysis", command=self._run
-        ).grid(row=9, column=0, padx=10, pady=(5, 2), sticky="ew")
+        ).grid(row=11, column=0, padx=10, pady=(5, 2), sticky="ew")
         ctk.CTkButton(
             self.sidebar, text="Export to Excel", command=self._export_results
-        ).grid(row=10, column=0, padx=10, pady=(2, 2), sticky="ew")
+        ).grid(row=12, column=0, padx=10, pady=(2, 2), sticky="ew")
 
         # File list (lightweight components only)
         ctk.CTkLabel(self.sidebar, text="Available Files:").grid(
-            row=11, column=0, padx=10, pady=(1, 0), sticky="w"
+            row=13, column=0, padx=10, pady=(1, 0), sticky="w"
         )
         self.search_entry = ctk.CTkEntry(self.sidebar, placeholder_text="Search files...")
         self.search_entry.grid(
-            row=12, column=0, padx=10, pady=(1, 0), sticky="ew"
+            row=14, column=0, padx=10, pady=(1, 0), sticky="ew"
         )
         self.search_entry.bind("<KeyRelease>", self._filter_files)
 
@@ -326,7 +336,7 @@ class RamanApp(ctk.CTk):
         """
         print("Entering _export_results")
 
-        if not self.results:
+        if not self.results and not self.peaks:
             print("No results to export.")
             return self._show_error("No results to export.")
 
@@ -342,10 +352,12 @@ class RamanApp(ctk.CTk):
 
         # 1) Build rows
         rows = []
-        for fname, areas in self.results.items():
+        for fname in sorted(set(list(self.results.keys()) + list(self.peaks.keys()))):
+            areas = self.results.get(fname, {})
+            peaks = self.peaks.get(fname, {})
             coords     = self.coordinates.get(fname, [])
             is_map     = len(coords) > 0
-            multi_spec = any(isinstance(v, list) and len(v) > 1 for v in areas.values())
+            multi_spec = any(isinstance(v, list) and len(v) > 1 for v in list(areas.values()) + list(peaks.values()))
 
             if multi_spec:
                 # MAP file: one row per spectrum
@@ -362,12 +374,19 @@ class RamanApp(ctk.CTk):
                     for (xmin, xmax), vals in areas.items():
                         key = f"{int(xmin)}–{int(xmax)}"
                         row[key] = float(vals[idx]) if idx < len(vals) else 0.0
+                    for center, vals in peaks.items():
+                        key = f"P{int(center)}"
+                        row[key] = float(vals[idx]) if idx < len(vals) else 0.0
                     rows.append(row)
             else:
                 # single-spectrum file (or multi single): one row per file
                 row = {"Filename": fname}
                 for (xmin, xmax), vals in areas.items():
                     key = f"{int(xmin)}–{int(xmax)}"
+                    val = vals[0] if isinstance(vals, list) else vals
+                    row[key] = float(val)
+                for center, vals in peaks.items():
+                    key = f"P{int(center)}"
                     val = vals[0] if isinstance(vals, list) else vals
                     row[key] = float(val)
                 rows.append(row)
@@ -520,6 +539,7 @@ class RamanApp(ctk.CTk):
             btn.destroy()
         self.file_buttons = []
         self.results = {}
+        self.peaks = {}
         self.figs = {}
         self.current_file = None
         self._orig_paths.clear()
@@ -527,11 +547,18 @@ class RamanApp(ctk.CTk):
         # parse ranges
         raw = self.ranges_entry.get()
         try:
-            rngs = [tuple(map(float, p.split(','))) for p in raw.split(';')]
+            rngs = [tuple(map(float, p.split(','))) for p in raw.split(';') if p]
         except Exception:
             return self._show_error("Invalid range format.")
 
+        raw_peaks = self.peaks_entry.get()
+        try:
+            peak_positions = [float(p.strip()) for p in raw_peaks.replace(',', ';').split(';') if p.strip()]
+        except Exception:
+            return self._show_error("Invalid peak format.")
+
         self.range_labels = [f"{int(r[0])}–{int(r[1])}" for r in rngs]
+        self.peak_labels = [f"{int(p)}" for p in peak_positions]
 
         # figure out what the user picked
         if self.file_paths:
@@ -565,12 +592,13 @@ class RamanApp(ctk.CTk):
         for p in inputs:
             # compute_areas_and_figures expects a FOLDER; for a single file
             # we can just wrap it in a one-file "folder" simulator:
-            results, figs, coords = compute_areas_and_figures_on_file(p, rngs)
+            results, peaks, figs, coords = compute_areas_and_figures_on_file(p, rngs, peak_positions)
             self.results.update(results)
+            self.peaks.update(peaks)
             self.figs.update(figs)
             self.coordinates.update(coords)
 
-            for fname in results.keys():
+            for fname in set(results.keys()) | set(peaks.keys()):
                 # 'results' was keyed by basename, so store its full path
                 self._orig_paths[fname] = p
 
@@ -648,7 +676,7 @@ class RamanApp(ctk.CTk):
             btn.configure(fg_color=("gray75","gray30") if btn.original_filename==filename else "transparent")
 
         # 3) Populate areas panel
-        for (xmin, xmax), area in self.results[filename].items():
+        for (xmin, xmax), area in self.results.get(filename, {}).items():
             row = ctk.CTkFrame(self.areas_panel)
             row.pack(fill="x", padx=10, pady=5)
 
@@ -661,6 +689,21 @@ class RamanApp(ctk.CTk):
                 txt = f"{area:.1f}"
             val = ctk.CTkLabel(row, text=txt, wraplength=200)
             val.pack(side="left", padx=(5,0))
+
+        # Peak results section
+        if self.peaks.get(filename):
+            title = ctk.CTkLabel(self.areas_panel, text="Peak Results", font=ctk.CTkFont(weight="bold"))
+            title.pack(anchor="w", padx=10, pady=(10,0))
+            for center, val in self.peaks[filename].items():
+                row = ctk.CTkFrame(self.areas_panel)
+                row.pack(fill="x", padx=10, pady=5)
+                lbl = ctk.CTkLabel(row, text=f"{int(center)}:", font=ctk.CTkFont(weight="bold"))
+                lbl.pack(side="left")
+                if isinstance(val, list):
+                    txt = ", ".join(f"{v:.1f}" for v in val)
+                else:
+                    txt = f"{val:.1f}"
+                ctk.CTkLabel(row, text=txt, wraplength=200).pack(side="left", padx=(5,0))
 
         # 4) Create plot frame and canvas
         fig = self.figs[filename]

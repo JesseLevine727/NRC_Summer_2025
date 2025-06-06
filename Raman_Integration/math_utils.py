@@ -8,6 +8,7 @@ _figure_cache: Dict[str, "Figure"] = {} # type: ignore
 
 Range: TypeAlias = Tuple[float, float]
 SpectraResults: TypeAlias = Dict[str, Dict[Range, List[float]]]
+PeakResults: TypeAlias = Dict[str, Dict[float, List[float]]]
 FigureMap: TypeAlias = Dict[str, "Figure"] # type: ignore
 Coordinate: TypeAlias = Tuple[float, float]
 CoordinateMap: TypeAlias = Dict[str, List[Coordinate]]
@@ -86,11 +87,16 @@ def read_spectra(path: str) -> Tuple[List['pd.DataFrame'], List[Coordinate]]: #t
     _spectra_cache[path] = (spectra, coords)
     return spectra, coords
 
-def compute_areas_and_figures(folder: str, ranges: List[Range]) -> Tuple[SpectraResults, FigureMap, CoordinateMap]:
-    """
-    Reads spectra and computes areas exactly as before, but
-    uses Figure (Agg backend) instead of plt.subplots() to
-    avoid GUI calls in a background thread.
+def compute_areas_and_figures(
+    folder: str,
+    ranges: List[Range],
+    peaks: List[float] | None = None,
+) -> Tuple[SpectraResults, PeakResults, FigureMap, CoordinateMap]:
+    """Compute integration areas and peak intensities for all spectra in *folder*.
+
+    ``ranges`` are integration regions expressed as ``(x_min, x_max)`` tuples.
+    ``peaks`` is a list of wavenumber positions. For each position the nearest
+    data point is selected and its baseline-corrected intensity is reported.
     """
     import numpy as np
     import matplotlib as mpl
@@ -102,9 +108,14 @@ def compute_areas_and_figures(folder: str, ranges: List[Range]) -> Tuple[Spectra
     cmap = colormaps['viridis']
     colors = cmap(np.linspace(0, 1, len(ranges)))
     color_map = dict(zip(ranges, colors))
+    peak_map: Dict[float, tuple] = {}
+    if peaks:
+        peak_colors = cmap(np.linspace(0, 1, len(peaks)))
+        peak_map = dict(zip(peaks, peak_colors))
 
     results: SpectraResults = {}
-    figs: FigureMap       = {}
+    peak_results: PeakResults = {}
+    figs: FigureMap = {}
     coordinates: CoordinateMap = {}
 
     for fname in sorted(os.listdir(folder)):
@@ -135,6 +146,7 @@ def compute_areas_and_figures(folder: str, ranges: List[Range]) -> Tuple[Spectra
             ax.plot(x, yi, color=base_color, alpha=0.6)
 
         file_areas: Dict[Range, List[float]] = {}
+        file_peaks: Dict[float, List[float]] = {}
         for (xmin, xmax), color in color_map.items():
             mask = (x >= xmin) & (x <= xmax)
             xr = x[mask]
@@ -161,6 +173,28 @@ def compute_areas_and_figures(folder: str, ranges: List[Range]) -> Tuple[Spectra
                 ax.fill_between(xr, bi_row, yi_row, where=(yi_row>bi_row), color=color, alpha=0.2)
                 ax.fill_between(xr, bi_row, yi_row, where=(yi_row<bi_row), color=color, alpha=0.1)
 
+        if peaks:
+            for center, pcolor in peak_map.items():
+                idx = int(np.abs(x - center).argmin())
+                win = 3
+                left = max(0, idx - win)
+                right = min(len(x) - 1, idx + win)
+                xr = x[left:right + 1]
+                Yr = Y[:, left:right + 1]
+                if xr.size == 0:
+                    file_peaks[center] = [0.0] * Y.shape[0]
+                    continue
+
+                b0 = Yr[:, 0]
+                b1 = Yr[:, -1]
+                factor = (xr - xr[0]) / max(xr[-1] - xr[0], 1e-9)
+                baseline = b0[:, None] + (b1 - b0)[:, None] * factor[None, :]
+                diff = Yr - baseline
+                max_idx = diff.argmax(axis=1)
+                heights = diff[np.arange(diff.shape[0]), max_idx]
+                file_peaks[center] = heights.tolist()
+                ax.axvline(xr[max_idx[0]], color=pcolor, linestyle="--", alpha=0.7)
+
         ax.set(
             title=os.path.splitext(fname)[0],
             xlabel='Wavenumber (1/cm)',
@@ -168,25 +202,31 @@ def compute_areas_and_figures(folder: str, ranges: List[Range]) -> Tuple[Spectra
         )
 
         results[fname] = file_areas
-        figs[fname]    = fig
+        if peaks:
+            peak_results[fname] = file_peaks
+        figs[fname] = fig
 
-    return results, figs, coordinates
+    return results, peak_results, figs, coordinates
 
 
 
-def compute_areas_and_figures_on_file(path: str, ranges: List[Range]):
-    """
-    Updated to handle coordinates for single file processing.
-    """
+def compute_areas_and_figures_on_file(
+    path: str,
+    ranges: List[Range],
+    peaks: List[float] | None = None,
+) -> Tuple[SpectraResults, PeakResults, FigureMap, CoordinateMap]:
+    """Helper to compute areas and peaks for a single file."""
     folder = os.path.dirname(path)
     fname  = os.path.basename(path)
     # call the normal function on the folder
-    all_results, all_figs, all_coords = compute_areas_and_figures(folder, ranges)
-    # pull out just this one:
+    all_results, all_peaks, all_figs, all_coords = compute_areas_and_figures(
+        folder, ranges, peaks
+    )
     return (
         {fname: all_results.get(fname, {})},
+        {fname: all_peaks.get(fname, {})},
         {fname: all_figs.get(fname)},
-        {fname: all_coords.get(fname, [])}
+        {fname: all_coords.get(fname, [])},
     )
 
 
