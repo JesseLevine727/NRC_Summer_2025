@@ -1,9 +1,10 @@
 import os
 import tkinter as tk
-from typing import List
+from typing import List, Dict
 import pandas as pd
 import matplotlib.pyplot as plt
 import customtkinter as ctk
+import re
 from CTkMessagebox import CTkMessagebox
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from math_utils import *
@@ -74,6 +75,8 @@ class RamanApp(ctk.CTk):
         self.coordinates = {}
         self.range_labels = []
         self.peak_labels = []
+        self.ranges: List[tuple] = []  # numeric ranges in input order
+        self.peaks_pos: List[float] = []  # peak positions in input order
 
         #Folder or individual files
         self.file_paths: List[str] = []
@@ -89,6 +92,7 @@ class RamanApp(ctk.CTk):
         # Store results and figures
         self.results = {}
         self.peaks = {}
+        self.peaks_raw = {}
         self.figs = {}
         self.current_file = None
         self._orig_paths = {}
@@ -217,9 +221,10 @@ class RamanApp(ctk.CTk):
 
         # compute only the raw plot (empty ranges → just raw traces)
         for p in inputs:
-            r, pk, f, c = compute_areas_and_figures_on_file(p, [], [])
+            r, pk, pk_raw, f, c = compute_areas_and_figures_on_file(p, [], [])
             self.results.update(r)
             self.peaks.update(pk)
+            self.peaks_raw.update(pk_raw)
             self.figs.update(f)
             self.coordinates.update(c)
 
@@ -334,10 +339,7 @@ class RamanApp(ctk.CTk):
         4) Drop Spectrum # if all values are 1.
         5) Write Excel via explicit ExcelWriter; verify success.
         """
-        print("Entering _export_results")
-
         if not self.results and not self.peaks:
-            print("No results to export.")
             return self._show_error("No results to export.")
 
         # Ask user where to save
@@ -345,96 +347,120 @@ class RamanApp(ctk.CTk):
             defaultextension=".xlsx",
             filetypes=[("Excel", "*.xlsx")]
         )
-        print(f"User selected path: {path}")
         if not path:
-            print("Save dialog canceled.")
             return
 
         # 1) Build rows
         rows = []
-        for fname in sorted(set(list(self.results.keys()) + list(self.peaks.keys()))):
+        for fname in sorted(set(self.results) | set(self.peaks) | set(self.peaks_raw)):
             areas = self.results.get(fname, {})
             peaks = self.peaks.get(fname, {})
+            peaks_raw = self.peaks_raw.get(fname, {})
             coords     = self.coordinates.get(fname, [])
             is_map     = len(coords) > 0
-            multi_spec = any(isinstance(v, list) and len(v) > 1 for v in list(areas.values()) + list(peaks.values()))
+            multi_spec = any(
+                isinstance(v, list) and len(v) > 1
+                for v in list(areas.values()) + list(peaks.values()) + list(peaks_raw.values())
+            )
 
             if multi_spec:
                 # MAP file: one row per spectrum
-                n = max(len(v) for v in areas.values())
+                n = max(
+                    len(v)
+                    for v in list(areas.values()) + list(peaks.values()) + list(peaks_raw.values())
+                )
                 coord_names = ["X_Coordinate", "Y_Coordinate", "Z_Coordinate"]
                 for idx in range(n):
-                    row = {"Filename": fname, "Spectrum #": idx + 1}
-                    # dynamic coords
+                    row: Dict[str, float] = {"Filename": fname, "Spectrum #": idx + 1}
                     if is_map and idx < len(coords):
                         for dim, cval in enumerate(coords[idx]):
                             if dim < len(coord_names):
                                 row[coord_names[dim]] = cval
-                    # area values
-                    for (xmin, xmax), vals in areas.items():
-                        key = f"{int(xmin)}–{int(xmax)}"
-                        row[key] = float(vals[idx]) if idx < len(vals) else 0.0
-                    for center, vals in peaks.items():
-                        key = f"P{int(center)}"
-                        row[key] = float(vals[idx]) if idx < len(vals) else 0.0
+                    for i, (label, r) in enumerate(zip(self.range_labels, self.ranges)):
+                        vals = areas.get(r, [])
+                        row[f"{label} (#{i+1})"] = float(vals[idx]) if idx < len(vals) else 0.0
+                    for i, (label, p) in enumerate(zip(self.peak_labels, self.peaks_pos)):
+                        vals = peaks.get(p, [])
+                        row[f"P{label} (#{i+1})"] = float(vals[idx]) if idx < len(vals) else 0.0
+                        vals_raw = peaks_raw.get(p, [])
+                        row[f"P{label}-raw (#{i+1})"] = float(vals_raw[idx]) if idx < len(vals_raw) else 0.0
                     rows.append(row)
             else:
-                # single-spectrum file (or multi single): one row per file
-                row = {"Filename": fname}
-                for (xmin, xmax), vals in areas.items():
-                    key = f"{int(xmin)}–{int(xmax)}"
-                    val = vals[0] if isinstance(vals, list) else vals
-                    row[key] = float(val)
-                for center, vals in peaks.items():
-                    key = f"P{int(center)}"
-                    val = vals[0] if isinstance(vals, list) else vals
-                    row[key] = float(val)
+                row: Dict[str, float] = {"Filename": fname}
+                if coords:
+                    coord_names = ["X_Coordinate", "Y_Coordinate", "Z_Coordinate"]
+                    for dim, cval in enumerate(coords[0]):
+                        if dim < len(coord_names):
+                            row[coord_names[dim]] = cval
+                for i, (label, r) in enumerate(zip(self.range_labels, self.ranges)):
+                    vals = areas.get(r, [])
+                    val = vals[0] if vals else 0.0
+                    row[f"{label} (#{i+1})"] = float(val)
+                for i, (label, p) in enumerate(zip(self.peak_labels, self.peaks_pos)):
+                    vals = peaks.get(p, [])
+                    val = vals[0] if vals else 0.0
+                    row[f"P{label} (#{i+1})"] = float(val)
+                    vals_raw = peaks_raw.get(p, [])
+                    val_raw = vals_raw[0] if vals_raw else 0.0
+                    row[f"P{label}-raw (#{i+1})"] = float(val_raw)
                 rows.append(row)
 
         df = pd.DataFrame(rows)
-        print("Built DataFrame for export, shape:", df.shape)
 
-        # 2) Pivot wide
         coord_names = ["X_Coordinate", "Y_Coordinate", "Z_Coordinate"]
         coord_cols  = [cn for cn in coord_names if cn in df.columns]
         index_cols  = ["Filename"] + (["Spectrum #"] if "Spectrum #" in df.columns else []) + coord_cols
-        value_cols  = [c for c in df.columns if c not in index_cols]
 
-        wide = (
-            df.pivot_table(index=index_cols, values=value_cols, aggfunc="first")
-            .reset_index()
-        )
-        print("Pivoted wide DataFrame, shape:", wide.shape)
+        integration_cols = [f"{lab} (#{i+1})" for i, lab in enumerate(self.range_labels)]
+        peak_cols        = [f"P{lab} (#{i+1})" for i, lab in enumerate(self.peak_labels)]
+        peak_raw_cols    = [f"P{lab}-raw (#{i+1})" for i, lab in enumerate(self.peak_labels)]
+        value_cols       = integration_cols + peak_cols + peak_raw_cols
+
+        wide = df[index_cols + value_cols]
 
         # 3) Custom ratios and spectral math
         ratio_exprs = [r.strip() for r in (self.ratios_entry.get() or "").split(';') if r.strip()]
         math_exprs  = [r.strip() for r in (self.math_entry.get() or "").split(';') if r.strip()]
 
         from math_utils import evaluate_formulas
-        base_cols = [c for c in value_cols if not c.endswith("_Coordinate")]
+        base_cols = value_cols
 
         ratio_df = pd.DataFrame()
         math_df  = pd.DataFrame()
+        label_map = {i + 1: col for i, col in enumerate(base_cols)}
+
         if ratio_exprs:
             ratio_vals = evaluate_formulas(wide, ratio_exprs, base_cols)
+            ratio_vals.columns = [re.sub(r"\b(\d+)\b", lambda m: label_map.get(int(m.group(1)), m.group(1)), c) for c in ratio_vals.columns]
             ratio_df = pd.concat([wide[index_cols], ratio_vals], axis=1)
 
         if math_exprs:
             math_vals = evaluate_formulas(wide, math_exprs, base_cols)
+            math_vals.columns = [re.sub(r"\b(\d+)\b", lambda m: label_map.get(int(m.group(1)), m.group(1)), c) for c in math_vals.columns]
             math_df = pd.concat([wide[index_cols], math_vals], axis=1)
 
+        integration_df = wide[index_cols + integration_cols]
+        peak_df        = wide[index_cols + peak_cols + peak_raw_cols] if peak_cols else pd.DataFrame()
+
         # 4) Drop redundant Spectrum #
-        if "Spectrum #" in wide.columns and wide["Spectrum #"].nunique() == 1:
-            wide.drop(columns="Spectrum #", inplace=True)
-            print("Dropped Spectrum # column")
+        if "Spectrum #" in integration_df.columns and integration_df["Spectrum #"].nunique() == 1:
+            integration_df.drop(columns="Spectrum #", inplace=True)
+            if not peak_df.empty:
+                peak_df.drop(columns="Spectrum #", inplace=True)
+            if not ratio_df.empty:
+                ratio_df.drop(columns="Spectrum #", inplace=True)
+            if not math_df.empty:
+                math_df.drop(columns="Spectrum #", inplace=True)
 
         try:
             from pandas import ExcelWriter
             import os
 
             with ExcelWriter(path, engine="openpyxl") as writer:
-                # Integration results
-                wide.to_excel(writer, sheet_name="Integration", index=False)
+                integration_df.to_excel(writer, sheet_name="Integration", index=False)
+
+                if not peak_df.empty:
+                    peak_df.to_excel(writer, sheet_name="Peaks", index=False)
 
                 if not ratio_df.empty:
                     ratio_df.to_excel(writer, sheet_name="Ratios", index=False)
@@ -540,9 +566,12 @@ class RamanApp(ctk.CTk):
         self.file_buttons = []
         self.results = {}
         self.peaks = {}
+        self.peaks_raw = {}
         self.figs = {}
         self.current_file = None
         self._orig_paths.clear()
+        self.ranges = []
+        self.peaks_pos = []
 
         # parse ranges
         raw = self.ranges_entry.get()
@@ -557,6 +586,8 @@ class RamanApp(ctk.CTk):
         except Exception:
             return self._show_error("Invalid peak format.")
 
+        self.ranges = rngs
+        self.peaks_pos = peak_positions
         self.range_labels = [f"{int(r[0])}–{int(r[1])}" for r in rngs]
         self.peak_labels = [f"{int(p)}" for p in peak_positions]
 
@@ -592,13 +623,14 @@ class RamanApp(ctk.CTk):
         for p in inputs:
             # compute_areas_and_figures expects a FOLDER; for a single file
             # we can just wrap it in a one-file "folder" simulator:
-            results, peaks, figs, coords = compute_areas_and_figures_on_file(p, rngs, peak_positions)
+            results, peaks, peaks_raw, figs, coords = compute_areas_and_figures_on_file(p, rngs, peak_positions)
             self.results.update(results)
             self.peaks.update(peaks)
+            self.peaks_raw.update(peaks_raw)
             self.figs.update(figs)
             self.coordinates.update(coords)
 
-            for fname in set(results.keys()) | set(peaks.keys()):
+            for fname in set(results.keys()) | set(peaks.keys()) | set(peaks_raw.keys()):
                 # 'results' was keyed by basename, so store its full path
                 self._orig_paths[fname] = p
 
