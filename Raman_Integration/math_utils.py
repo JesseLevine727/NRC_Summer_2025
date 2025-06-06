@@ -237,31 +237,6 @@ def compute_areas_and_figures_on_file(
         {fname: all_coords.get(fname, [])},
     )
 
-
-# New helper to compute all pairwise ratios and their inverses
-def pairwise_ratios(df: 'pd.DataFrame', value_cols: List[str]) -> 'pd.DataFrame': # type: ignore
-    """
-    Given a wide DataFrame and a list of numeric columns (ranges),
-    add for each unique pair (c1, c2):
-      - c1/c2
-      - c2/c1
-    Returns the DataFrame with new ratio columns appended.
-    """
-    import numpy as np
-    
-    for c1, c2 in itertools.combinations(value_cols, 2):
-        # original ratio
-        ratio_col = f"{c1}/{c2}"
-        ratio = df[c1] / df[c2].replace({0: np.nan})
-        df[ratio_col] = ratio.fillna(0.0).astype(float)
-
-        # inverse ratio
-        inv_col = f"{c2}/{c1}"
-        inv_ratio = df[c2] / df[c1].replace({0: np.nan})
-        df[inv_col] = inv_ratio.fillna(0.0).astype(float)
-    return df
-
-
 def evaluate_formulas(df: 'pd.DataFrame', formulas: List[str], column_order: List[str]) -> 'pd.DataFrame': # type: ignore
     """Evaluate arbitrary expressions referencing ranges by number.
 
