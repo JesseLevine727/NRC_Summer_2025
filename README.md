@@ -1,32 +1,56 @@
 # Raman Spectra Integrator
 
-This project provides a Tkinter-based GUI for integrating Raman spectra.
+This repository contains a Python application for integrating and analyzing Raman spectra. The graphical user interface is built with [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) and is designed to work both for newcomers to Raman spectroscopy and those who routinely process spectra.
 
-## Usage
+## Quick Start
 
-Run the application with:
+1. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+   Python 3.10 or later is recommended.
 
-```bash
-python3 Raman_Integration/main.py
-```
+2. **Run the application**
+   ```bash
+   python3 Raman_Integration/main.py
+   ```
+   A window will open allowing you to browse for `.txt` or `.spc` files or an entire folder of spectra.
 
-Select a folder or files containing `.txt` or `.spc` spectra, define integration ranges and peak positions, then export the results to Excel.
+3. **Define ranges and peaks**
+   - *Ranges* are entered as `x_min,x_max;...` e.g. `100,200;300,350`.
+   - *Peaks* are wavenumber positions separated by semicolons (e.g. `1580;1600`).
+   - Optional expressions allow custom ratios or spectral math.
 
-The output workbook includes:
+4. **Run analysis and export**
+   - Click **Run Analysis** to integrate all selected spectra.
+   - Click **Export to Excel** to create a workbook with integration results, peak intensities, and any custom formulas.
 
-- **Integration**: Areas for each defined range.
-- **Peaks**: Baseline-subtracted and raw intensities for each peak.
-- **Ratios**: Custom ratio calculations for integrated areas.
-- **Peak Ratios**: Ratio calculations for peak intensities.
-- **Spectral Math**: Additional user-defined formulas for integrated areas.
-- **Peak Spectral Math**: User formulas applied to peak intensities.
+## Features for Experts
 
-## Requirements
+- Supports multi-spectra map files with coordinate information.
+- Computes baseline-corrected and raw peak intensities.
+- Automatic generation of pairwise area ratios and inverse ratios.
+- User-defined formulas ("Spectral Math" and "Peak Spectral Math") evaluated on the fly.
+- Uses Matplotlib for plotting; figures are cached to reduce overhead.
 
-Install dependencies with:
+The exported workbook contains the following sheets:
 
-```bash
-pip install -r requirements.txt
-```
+- **Integration** – integrated area for each defined range.
+- **Peaks** – baseline-subtracted intensities at specified positions.
+- **Ratios** – pairwise ratios of integrated areas.
+- **Peak Ratios** – ratios of peak intensities.
+- **Spectral Math** – results from custom formulas on areas.
+- **Peak Spectral Math** – formulas applied to peak intensities.
 
-Python 3.10 or later is recommended.
+## Repository Layout
+
+- `Raman_Integration/gui.py` – main GUI implementation.
+- `Raman_Integration/math_utils.py` – functions for reading spectra and computing results.
+- `Raman_Integration/main.py` – simple entry point that launches the GUI.
+- `requirements.txt` – required Python packages.
+
+## Contributing
+
+Issues and pull requests are welcome. Feel free to submit bug reports or feature suggestions.
+
+
