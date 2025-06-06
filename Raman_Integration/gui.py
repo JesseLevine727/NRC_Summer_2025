@@ -359,6 +359,7 @@ class RamanApp(ctk.CTk):
             peaks_raw = self.peaks_raw.get(fname, {})
             coords     = self.coordinates.get(fname, [])
             is_map     = len(coords) > 0
+
             multi_spec = any(
                 isinstance(v, list) and len(v) > 1
                 for v in list(areas.values()) + list(peaks.values()) + list(peaks_raw.values())
@@ -370,6 +371,7 @@ class RamanApp(ctk.CTk):
                     len(v)
                     for v in list(areas.values()) + list(peaks.values()) + list(peaks_raw.values())
                 )
+
                 coord_names = ["X_Coordinate", "Y_Coordinate", "Z_Coordinate"]
                 for idx in range(n):
                     row: Dict[str, float] = {"Filename": fname, "Spectrum #": idx + 1}
@@ -383,8 +385,10 @@ class RamanApp(ctk.CTk):
                     for i, (label, p) in enumerate(zip(self.peak_labels, self.peaks_pos)):
                         vals = peaks.get(p, [])
                         row[f"P{label} (#{i+1})"] = float(vals[idx]) if idx < len(vals) else 0.0
+
                         vals_raw = peaks_raw.get(p, [])
                         row[f"P{label}-raw (#{i+1})"] = float(vals_raw[idx]) if idx < len(vals_raw) else 0.0
+
                     rows.append(row)
             else:
                 row: Dict[str, float] = {"Filename": fname}
@@ -401,6 +405,7 @@ class RamanApp(ctk.CTk):
                     vals = peaks.get(p, [])
                     val = vals[0] if vals else 0.0
                     row[f"P{label} (#{i+1})"] = float(val)
+
                     vals_raw = peaks_raw.get(p, [])
                     val_raw = vals_raw[0] if vals_raw else 0.0
                     row[f"P{label}-raw (#{i+1})"] = float(val_raw)
@@ -408,14 +413,17 @@ class RamanApp(ctk.CTk):
 
         df = pd.DataFrame(rows)
 
+
         coord_names = ["X_Coordinate", "Y_Coordinate", "Z_Coordinate"]
         coord_cols  = [cn for cn in coord_names if cn in df.columns]
         index_cols  = ["Filename"] + (["Spectrum #"] if "Spectrum #" in df.columns else []) + coord_cols
 
         integration_cols = [f"{lab} (#{i+1})" for i, lab in enumerate(self.range_labels)]
         peak_cols        = [f"P{lab} (#{i+1})" for i, lab in enumerate(self.peak_labels)]
+
         peak_raw_cols    = [f"P{lab}-raw (#{i+1})" for i, lab in enumerate(self.peak_labels)]
         value_cols       = integration_cols + peak_cols + peak_raw_cols
+
 
         wide = df[index_cols + value_cols]
 
@@ -441,7 +449,9 @@ class RamanApp(ctk.CTk):
             math_df = pd.concat([wide[index_cols], math_vals], axis=1)
 
         integration_df = wide[index_cols + integration_cols]
+
         peak_df        = wide[index_cols + peak_cols + peak_raw_cols] if peak_cols else pd.DataFrame()
+
 
         # 4) Drop redundant Spectrum #
         if "Spectrum #" in integration_df.columns and integration_df["Spectrum #"].nunique() == 1:
