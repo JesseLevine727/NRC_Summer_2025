@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+.DS_Store
+
+# Virtual environment
+venv/
+ENV/
+
+# Python cache directories
+*.egg-info/
+.eggs/
+
