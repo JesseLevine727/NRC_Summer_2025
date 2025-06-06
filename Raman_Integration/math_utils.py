@@ -3,22 +3,15 @@ import os
 import io
 from typing import List, Tuple, Dict, TypeAlias
 
-_spectra_cache: Dict[str, Tuple[List['pd.DataFrame'], List[Tuple[float, float]]]] = {}  # type: ignore
-_figure_cache: Dict[str, "Figure"] = {}  # type: ignore
+_spectra_cache: Dict[str, Tuple[List['pd.DataFrame'], List[Tuple[float, float]]]] = {} # type: ignore
+_figure_cache: Dict[str, "Figure"] = {} # type: ignore
 
 Range: TypeAlias = Tuple[float, float]
 SpectraResults: TypeAlias = Dict[str, Dict[Range, List[float]]]
 PeakResults: TypeAlias = Dict[str, Dict[float, List[float]]]
-RawPeakResults: TypeAlias = Dict[str, Dict[float, List[float]]]
 FigureMap: TypeAlias = Dict[str, "Figure"] # type: ignore
 Coordinate: TypeAlias = Tuple[float, float]
 CoordinateMap: TypeAlias = Dict[str, List[Coordinate]]
-
-
-def reset_caches() -> None:
-    """Clear cached spectra and figures."""
-    _spectra_cache.clear()
-    _figure_cache.clear()
 
 def load_map_file(path: str) -> Tuple[List['pd.DataFrame'], List[Tuple[float, ...]]]: # type: ignore
     """
@@ -98,7 +91,7 @@ def compute_areas_and_figures(
     folder: str,
     ranges: List[Range],
     peaks: List[float] | None = None,
-) -> Tuple[SpectraResults, PeakResults, RawPeakResults, FigureMap, CoordinateMap]:
+) -> Tuple[SpectraResults, PeakResults, FigureMap, CoordinateMap]:
     """Compute integration areas and peak intensities for all spectra in *folder*.
 
     ``ranges`` are integration regions expressed as ``(x_min, x_max)`` tuples.
@@ -122,7 +115,6 @@ def compute_areas_and_figures(
 
     results: SpectraResults = {}
     peak_results: PeakResults = {}
-    raw_peak_results: RawPeakResults = {}
     figs: FigureMap = {}
     coordinates: CoordinateMap = {}
 
@@ -155,7 +147,6 @@ def compute_areas_and_figures(
 
         file_areas: Dict[Range, List[float]] = {}
         file_peaks: Dict[float, List[float]] = {}
-        file_peaks_raw: Dict[float, List[float]] = {}
         for (xmin, xmax), color in color_map.items():
             mask = (x >= xmin) & (x <= xmax)
             xr = x[mask]
@@ -192,7 +183,6 @@ def compute_areas_and_figures(
                 Yr = Y[:, left:right + 1]
                 if xr.size == 0:
                     file_peaks[center] = [0.0] * Y.shape[0]
-                    file_peaks_raw[center] = [0.0] * Y.shape[0]
                     continue
 
                 b0 = Yr[:, 0]
@@ -202,9 +192,7 @@ def compute_areas_and_figures(
                 diff = Yr - baseline
                 max_idx = diff.argmax(axis=1)
                 heights = diff[np.arange(diff.shape[0]), max_idx]
-                raw_vals = Yr[np.arange(Yr.shape[0]), max_idx]
                 file_peaks[center] = heights.tolist()
-                file_peaks_raw[center] = raw_vals.tolist()
                 ax.axvline(xr[max_idx[0]], color=pcolor, linestyle="--", alpha=0.7)
 
         ax.set(
@@ -216,10 +204,9 @@ def compute_areas_and_figures(
         results[fname] = file_areas
         if peaks:
             peak_results[fname] = file_peaks
-            raw_peak_results[fname] = file_peaks_raw
         figs[fname] = fig
 
-    return results, peak_results, raw_peak_results, figs, coordinates
+    return results, peak_results, figs, coordinates
 
 
 
@@ -227,24 +214,47 @@ def compute_areas_and_figures_on_file(
     path: str,
     ranges: List[Range],
     peaks: List[float] | None = None,
-) -> Tuple[SpectraResults, PeakResults, RawPeakResults, FigureMap, CoordinateMap]:
+) -> Tuple[SpectraResults, PeakResults, FigureMap, CoordinateMap]:
     """Helper to compute areas and peaks for a single file."""
     folder = os.path.dirname(path)
     fname  = os.path.basename(path)
     # call the normal function on the folder
-    all_results, all_peaks, all_raw_peaks, all_figs, all_coords = compute_areas_and_figures(
+    all_results, all_peaks, all_figs, all_coords = compute_areas_and_figures(
         folder, ranges, peaks
     )
     return (
         {fname: all_results.get(fname, {})},
         {fname: all_peaks.get(fname, {})},
-        {fname: all_raw_peaks.get(fname, {})},
         {fname: all_figs.get(fname)},
         {fname: all_coords.get(fname, [])},
     )
 
 
-def evaluate_formulas(df: 'pd.DataFrame', formulas: List[str], column_order: List[str]) -> 'pd.DataFrame':
+# New helper to compute all pairwise ratios and their inverses
+def pairwise_ratios(df: 'pd.DataFrame', value_cols: List[str]) -> 'pd.DataFrame': # type: ignore
+    """
+    Given a wide DataFrame and a list of numeric columns (ranges),
+    add for each unique pair (c1, c2):
+      - c1/c2
+      - c2/c1
+    Returns the DataFrame with new ratio columns appended.
+    """
+    import numpy as np
+    
+    for c1, c2 in itertools.combinations(value_cols, 2):
+        # original ratio
+        ratio_col = f"{c1}/{c2}"
+        ratio = df[c1] / df[c2].replace({0: np.nan})
+        df[ratio_col] = ratio.fillna(0.0).astype(float)
+
+        # inverse ratio
+        inv_col = f"{c2}/{c1}"
+        inv_ratio = df[c2] / df[c1].replace({0: np.nan})
+        df[inv_col] = inv_ratio.fillna(0.0).astype(float)
+    return df
+
+
+def evaluate_formulas(df: 'pd.DataFrame', formulas: List[str], column_order: List[str]) -> 'pd.DataFrame': # type: ignore
     """Evaluate arbitrary expressions referencing ranges by number.
 
     Parameters

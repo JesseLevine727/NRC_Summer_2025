@@ -92,7 +92,6 @@ class RamanApp(ctk.CTk):
         # Store results and figures
         self.results = {}
         self.peaks = {}
-        self.peaks_raw = {}
         self.figs = {}
         self.current_file = None
         self._orig_paths = {}
@@ -177,7 +176,6 @@ class RamanApp(ctk.CTk):
 
     def _preview_selection(self):
         """Populate results & plots for the selected folder/files with no ranges."""
-        reset_caches()
         # Ensure content frame exists before proceeding
         self._ensure_content_frame()
         self._ensure_file_container()
@@ -222,10 +220,9 @@ class RamanApp(ctk.CTk):
 
         # compute only the raw plot (empty ranges → just raw traces)
         for p in inputs:
-            r, pk, pk_raw, f, c = compute_areas_and_figures_on_file(p, [], [])
+            r, pk, f, c = compute_areas_and_figures_on_file(p, [], [])
             self.results.update(r)
             self.peaks.update(pk)
-            self.peaks_raw.update(pk_raw)
             self.figs.update(f)
             self.coordinates.update(c)
 
@@ -340,7 +337,10 @@ class RamanApp(ctk.CTk):
         4) Drop Spectrum # if all values are 1.
         5) Write Excel via explicit ExcelWriter; verify success.
         """
+        print("Entering _export_results")
+
         if not self.results and not self.peaks:
+            print("No results to export.")
             return self._show_error("No results to export.")
 
         # Ask user where to save
@@ -348,30 +348,23 @@ class RamanApp(ctk.CTk):
             defaultextension=".xlsx",
             filetypes=[("Excel", "*.xlsx")]
         )
+        print(f"User selected path: {path}")
         if not path:
+            print("Save dialog canceled.")
             return
 
         # 1) Build rows
         rows = []
-        for fname in sorted(set(self.results) | set(self.peaks) | set(self.peaks_raw)):
+        for fname in sorted(set(list(self.results.keys()) + list(self.peaks.keys()))):
             areas = self.results.get(fname, {})
             peaks = self.peaks.get(fname, {})
-            peaks_raw = self.peaks_raw.get(fname, {})
             coords     = self.coordinates.get(fname, [])
             is_map     = len(coords) > 0
-
-            multi_spec = any(
-                isinstance(v, list) and len(v) > 1
-                for v in list(areas.values()) + list(peaks.values()) + list(peaks_raw.values())
-            )
+            multi_spec = any(isinstance(v, list) and len(v) > 1 for v in list(areas.values()) + list(peaks.values()))
 
             if multi_spec:
                 # MAP file: one row per spectrum
-                n = max(
-                    len(v)
-                    for v in list(areas.values()) + list(peaks.values()) + list(peaks_raw.values())
-                )
-
+                n = max(len(v) for v in list(areas.values()) + list(peaks.values()))
                 coord_names = ["X_Coordinate", "Y_Coordinate", "Z_Coordinate"]
                 for idx in range(n):
                     row: Dict[str, float] = {"Filename": fname, "Spectrum #": idx + 1}
@@ -385,10 +378,6 @@ class RamanApp(ctk.CTk):
                     for i, (label, p) in enumerate(zip(self.peak_labels, self.peaks_pos)):
                         vals = peaks.get(p, [])
                         row[f"P{label} (#{i+1})"] = float(vals[idx]) if idx < len(vals) else 0.0
-
-                        vals_raw = peaks_raw.get(p, [])
-                        row[f"P{label}-raw (#{i+1})"] = float(vals_raw[idx]) if idx < len(vals_raw) else 0.0
-
                     rows.append(row)
             else:
                 row: Dict[str, float] = {"Filename": fname}
@@ -405,14 +394,10 @@ class RamanApp(ctk.CTk):
                     vals = peaks.get(p, [])
                     val = vals[0] if vals else 0.0
                     row[f"P{label} (#{i+1})"] = float(val)
-
-                    vals_raw = peaks_raw.get(p, [])
-                    val_raw = vals_raw[0] if vals_raw else 0.0
-                    row[f"P{label}-raw (#{i+1})"] = float(val_raw)
                 rows.append(row)
 
         df = pd.DataFrame(rows)
-
+        print("Built DataFrame for export, shape:", df.shape)
 
         coord_names = ["X_Coordinate", "Y_Coordinate", "Z_Coordinate"]
         coord_cols  = [cn for cn in coord_names if cn in df.columns]
@@ -420,10 +405,7 @@ class RamanApp(ctk.CTk):
 
         integration_cols = [f"{lab} (#{i+1})" for i, lab in enumerate(self.range_labels)]
         peak_cols        = [f"P{lab} (#{i+1})" for i, lab in enumerate(self.peak_labels)]
-
-        peak_raw_cols    = [f"P{lab}-raw (#{i+1})" for i, lab in enumerate(self.peak_labels)]
-        value_cols       = integration_cols + peak_cols + peak_raw_cols
-
+        value_cols       = integration_cols + peak_cols
 
         wide = df[index_cols + value_cols]
 
@@ -449,9 +431,7 @@ class RamanApp(ctk.CTk):
             math_df = pd.concat([wide[index_cols], math_vals], axis=1)
 
         integration_df = wide[index_cols + integration_cols]
-
-        peak_df        = wide[index_cols + peak_cols + peak_raw_cols] if peak_cols else pd.DataFrame()
-
+        peak_df        = wide[index_cols + peak_cols] if peak_cols else pd.DataFrame()
 
         # 4) Drop redundant Spectrum #
         if "Spectrum #" in integration_df.columns and integration_df["Spectrum #"].nunique() == 1:
@@ -462,9 +442,11 @@ class RamanApp(ctk.CTk):
                 ratio_df.drop(columns="Spectrum #", inplace=True)
             if not math_df.empty:
                 math_df.drop(columns="Spectrum #", inplace=True)
+            print("Dropped Spectrum # column")
 
         try:
             from pandas import ExcelWriter
+            import os
 
             with ExcelWriter(path, engine="openpyxl") as writer:
                 integration_df.to_excel(writer, sheet_name="Integration", index=False)
@@ -562,7 +544,6 @@ class RamanApp(ctk.CTk):
 
     def _run(self):
         # Ensure content frame exists before proceeding
-        reset_caches()
         self._ensure_content_frame()
         self._ensure_file_container()
 
@@ -577,7 +558,6 @@ class RamanApp(ctk.CTk):
         self.file_buttons = []
         self.results = {}
         self.peaks = {}
-        self.peaks_raw = {}
         self.figs = {}
         self.current_file = None
         self._orig_paths.clear()
@@ -634,14 +614,13 @@ class RamanApp(ctk.CTk):
         for p in inputs:
             # compute_areas_and_figures expects a FOLDER; for a single file
             # we can just wrap it in a one-file "folder" simulator:
-            results, peaks, peaks_raw, figs, coords = compute_areas_and_figures_on_file(p, rngs, peak_positions)
+            results, peaks, figs, coords = compute_areas_and_figures_on_file(p, rngs, peak_positions)
             self.results.update(results)
             self.peaks.update(peaks)
-            self.peaks_raw.update(peaks_raw)
             self.figs.update(figs)
             self.coordinates.update(coords)
 
-            for fname in set(results.keys()) | set(peaks.keys()) | set(peaks_raw.keys()):
+            for fname in set(results.keys()) | set(peaks.keys()):
                 # 'results' was keyed by basename, so store its full path
                 self._orig_paths[fname] = p
 
