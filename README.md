@@ -49,8 +49,5 @@ The exported workbook contains the following sheets:
 - `Raman_Integration/main.py` – simple entry point that launches the GUI.
 - `requirements.txt` – required Python packages.
 
-## Contributing
-
-Issues and pull requests are welcome. Feel free to submit bug reports or feature suggestions.
 
 
