@@ -1,10 +1,10 @@
 # Using RamanIntegrator.exe
 
-This guide is for internal use and explains how to run the standalone Windows executable built from this project.
+This guide is for internal use and explains how to run the standalone Windows executable built.
 
 ## Running the Program
 
-1. Download or copy the entire `RamanIntegrator.dist` directory to your Windows machine.
+1. Download or copy the entire `main.dist` directory to your Windows machine.
 2. Inside that folder double-click **`RamanIntegrator.exe`**. Alternatively open a Command Prompt, navigate to the folder, and type:
    ```cmd
    RamanIntegrator.exe
@@ -27,3 +27,8 @@ This guide is for internal use and explains how to run the standalone Windows ex
 - Automatically generate ratios of ranges and peaks.
 - Apply your own mathematical expressions to the data.
 - Export everything to Excel for further analysis or plotting.
+
+  ## Spectral File Support
+  - Supports `.txt` and `.spc` file.
+  - Supports 1-D and 2-D MAP files
+  - Supports Single Spectrum files
